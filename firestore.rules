@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Diagnostic connection test document
+    match /test/{testId} {
+      allow read: if true;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidProject(data) {
+      return data.id is string && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId is string && data.userId == request.auth.uid
+        && data.title is string && data.title.size() <= 500
+        && data.platform is string && data.platform.size() <= 32
+        && data.reels is list && data.reels.size() <= 30
+        && (!('date' in data) || (data.date is string && data.date.size() <= 100))
+        && (!('videoUrl' in data) || (data.videoUrl is string && data.videoUrl.size() <= 1000))
+        && (!('language' in data) || (data.language is string && data.language.size() <= 32))
+        && (!('selectedReelIndex' in data) || (data.selectedReelIndex is number));
+    }
+
+    // User-owned Projects Collection
+    match /projects/{projectId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && isValidId(projectId)
+        && isValidProject(incoming())
+        && incoming().id == projectId
+        && incoming().userId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && isValidId(projectId)
+        && isValidProject(incoming())
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && existing().userId == request.auth.uid;
+
+      allow delete: if isSignedIn()
+        && isValidId(projectId)
+        && existing().userId == request.auth.uid;
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "ViralCut AI - YouTube to Viral Reels & Shorts Studio",
+  "description": "Transform YouTube videos and transcripts into high-retention viral Reels, Shorts, and TikTok scripts with psychological hooks, visual scene cues, retention analytics, and mobile editor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

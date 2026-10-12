@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "Saved viral short video project containing generated scripts, hooks, segments, and virality analysis",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique project identifier",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owning user"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the video or project",
+          "maxLength": 500
+        },
+        "date": {
+          "type": "string",
+          "description": "Human-readable creation date"
+        },
+        "videoUrl": {
+          "type": "string",
+          "description": "Original YouTube video source URL"
+        },
+        "platform": {
+          "type": "string",
+          "description": "Target platform (tiktok, reels, or shorts)"
+        },
+        "language": {
+          "type": "string",
+          "description": "Output language (english or roman-urdu)"
+        },
+        "reels": {
+          "type": "array",
+          "description": "List of generated viral reel scripts"
+        },
+        "selectedReelIndex": {
+          "type": "number",
+          "description": "Index of the currently selected reel"
+        }
+      },
+      "required": ["id", "userId", "title", "platform", "reels"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Collection of user-created viral video script projects"
+    }
+  }
+}

@@ -308,8 +308,9 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
 
       if (data.transcript) {
         setTranscript(data.transcript);
+        setFetchError(null);
       } else {
-        setFetchError('Video metadata found, but YouTube automatic captions are disabled for this video. You can paste the transcript or notes manually below!');
+        setFetchError('Captions could not be extracted automatically. You can paste the transcript or notes manually below!');
         setInputMode('transcript');
       }
     } catch (err: any) {
@@ -634,7 +635,7 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
                 {fetchingInfo ? (
                   <>
                     <RefreshCw className="h-3.5 w-3.5 animate-spin text-amber-400" />
-                    <span>Extracting...</span>
+                    <span>Extracting Audio & Captions...</span>
                   </>
                 ) : (
                   <>

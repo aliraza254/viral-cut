@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import { Type } from '@google/genai';
 import { ai } from './gemini';
 import { fetchYouTubeData } from './youtube';
@@ -18,7 +19,7 @@ export function createApiApp() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
-  // Extract YouTube metadata & transcript
+  // Extract YouTube metadata & transcript (with automated Gemini audio transcription fallback)
   app.post('/api/extract-youtube', async (req, res) => {
     try {
       const { url } = req.body;
@@ -27,6 +28,56 @@ export function createApiApp() {
       }
 
       const info = await fetchYouTubeData(url);
+
+      // If captions were disabled by creator, but audio stream was captured, auto-transcribe via Gemini
+      if (!info.transcript && info.audioPath && fs.existsSync(info.audioPath)) {
+        try {
+          console.log(`[YouTube Ingestion] Auto-transcribing non-captioned audio stream from: ${info.audioPath}`);
+          const rawAudio = fs.readFileSync(info.audioPath);
+          const audioBase64 = rawAudio.toString('base64');
+          const mimeType = info.mimeType || 'audio/mp4';
+
+          const transcribePrompt = `You are an expert audio transcriber. Transcribe this video audio verbatim with chronological [MM:SS] timestamps for each paragraph or major speech segment. Format each line like:
+[00:00] First spoken line here
+[00:05] Second spoken line here
+Return only the transcript lines with timestamps.`;
+
+          const { response } = await generateContentWithFallback({
+            models: ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'],
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType,
+                      data: audioBase64,
+                    },
+                  },
+                  {
+                    text: transcribePrompt,
+                  },
+                ],
+              },
+            ],
+          });
+
+          if (response.text && response.text.trim().length > 20) {
+            info.transcript = response.text.trim();
+            info.hasTranscript = true;
+          }
+        } catch (transcribeErr) {
+          console.warn('[YouTube Ingestion] Audio transcription fallback warning:', transcribeErr);
+        } finally {
+          try {
+            if (fs.existsSync(info.audioPath)) {
+              fs.unlinkSync(info.audioPath);
+            }
+          } catch {}
+          delete (info as any).audioPath;
+        }
+      }
+
       return res.json(info);
     } catch (error: any) {
       console.error('Error in /api/extract-youtube:', error);

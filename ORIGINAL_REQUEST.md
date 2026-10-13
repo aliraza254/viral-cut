@@ -47,3 +47,30 @@ Establish the foundation for the Python backend engine:
 - [ ] npm run build completes successfully with 0 errors.
 - [ ] The codebase is cleanly decoupled: App.tsx acts as the root router/shell rather than holding all component state and markup.
 - [ ] The Python backend/ directory is scaffolded with clear documentation and schemas ready for Phase 2 implementation.
+
+
+## Follow-up — 2026-10-13T06:17:14Z
+
+continue the work last time we got some error
+
+
+## 2026-10-13T06:24:25Z
+
+User Directive:
+1. Streamline and fast-track: Skip lengthy adversarial challenger iterations and deep synthetic test runs. The user stated explicitly: "only check for errors, i'll do the test manually."
+2. Finalize Gate 3 and M4 build/typecheck validation quickly (`npm run lint` and `npm run build`).
+3. Immediately transition to Phase 2: YouTube Audio Ingestion & Caption Fallback (resolving the issue where YouTube URLs fail when automatic captions are disabled by fetching audio stream and transcribing via Gemini).
+
+
+## 2026-10-13T06:41:16Z
+
+Directive from user:
+"tell the team to do the task, and only check for errors, i'll do the test munally. and what are the team is doing? take report and let me know"
+
+Status Update from Lead:
+1. Phase 1 (Navigation Shell, 2 Sub-Pages, Responsive layout, Python backend scaffolding) is committed and live.
+2. Phase 2 (YouTube audio ingestion fix via yt-dlp CLI + Gemini audio transcription fallback when captions are disabled) is already wired into server/youtube.ts and server/app.ts. Both `npm run lint` and `npm run build` pass with 0 errors.
+3. imageio-ffmpeg FFmpeg 7.1 with libass & libx264 is available on system for Phase 4 ASS subtitle burning.
+4. Next priorities:
+   - Phase 3: Fix audio playback (Issue 8: replace buggy speechSynthesis with synchronized real audio/HTML5 playback).
+   - Phase 4: Fix video export stutter, missing audio, and caption style mismatch (Issues 3, 4, 5, 6) using FFmpeg ASS rendering or canvas-audio sync.

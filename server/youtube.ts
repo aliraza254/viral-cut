@@ -1,3 +1,9 @@
+import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
+
 export interface YouTubeVideoInfo {
   videoId: string;
   title: string;
@@ -5,6 +11,8 @@ export interface YouTubeVideoInfo {
   thumbnailUrl: string;
   transcript?: string;
   hasTranscript: boolean;
+  audioPath?: string;
+  mimeType?: string;
 }
 
 export function extractYouTubeId(urlOrId: string): string | null {
@@ -18,17 +26,59 @@ export function extractYouTubeId(urlOrId: string): string | null {
   return match ? match[1] : null;
 }
 
+/**
+ * Attempt to extract YouTube video metadata, subtitles, and/or audio stream
+ * using the Python yt-dlp CLI engine.
+ */
+async function fetchViaPythonExtractor(url: string): Promise<YouTubeVideoInfo | null> {
+  try {
+    const scriptPath = path.resolve(process.cwd(), 'backend', 'app', 'extract_cli.py');
+    const pythonExe = process.platform === 'win32' ? 'python' : 'python3';
+
+    const { stdout } = await execFileAsync(pythonExe, [scriptPath, '--url', url], {
+      timeout: 30000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+
+    const parsed = JSON.parse(stdout.trim());
+    if (parsed.error) {
+      console.warn('[Python Extractor] Subprocess error:', parsed.error);
+      return null;
+    }
+
+    return {
+      videoId: parsed.videoId,
+      title: parsed.title,
+      author: parsed.author,
+      thumbnailUrl: parsed.thumbnailUrl,
+      transcript: parsed.transcript || undefined,
+      hasTranscript: Boolean(parsed.hasTranscript),
+      audioPath: parsed.audioPath || undefined,
+      mimeType: parsed.mimeType || undefined,
+    };
+  } catch (err: any) {
+    console.warn('[Python Extractor] Subprocess failed or python unavailable, falling back:', err?.message || err);
+    return null;
+  }
+}
+
 export async function fetchYouTubeData(urlOrId: string): Promise<YouTubeVideoInfo> {
   const videoId = extractYouTubeId(urlOrId);
   if (!videoId) {
     throw new Error('Invalid YouTube URL or Video ID. Please check the link and try again.');
   }
 
-  let title = `YouTube Video (${videoId})`;
-  let author = 'Creator';
-  const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+  // 1. Primary: High-accuracy extraction via yt-dlp Python engine
+  const pyResult = await fetchViaPythonExtractor(urlOrId);
+  if (pyResult && (pyResult.hasTranscript || pyResult.audioPath)) {
+    return pyResult;
+  }
 
-  // 1. Try to fetch oEmbed details
+  let title = pyResult?.title || `YouTube Video (${videoId})`;
+  let author = pyResult?.author || 'Creator';
+  const thumbnailUrl = pyResult?.thumbnailUrl || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+
+  // 2. Try to fetch oEmbed details if title is still default
   try {
     const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }

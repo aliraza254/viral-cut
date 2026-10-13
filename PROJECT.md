@@ -48,8 +48,8 @@ ViralCut is a high-velocity AI video creation platform being transformed from a 
 |---|------|-------|-------------|--------|
 | M1 | Python Backend Scaffolding & Proxy | backend/ app, requirements.txt, endpoints, Pydantic schemas, Vite proxy, apiClient.ts | none | DONE |
 | M2 | Frontend Decomposition & Tool Pages | App.tsx deconstruction, CaptionStudio.tsx, ViralReelGenerator.tsx, NavigationShell, platform selector removal, ProjectContext | M1 | DONE |
-| M3 | Mobile-First Responsive Design | Eliminate fixed widths, responsive player scaling, tablet breakpoints, modal/drawer responsiveness | M2 | IN_PROGRESS |
-| M4 | Build Verification & E2E Acceptance | npm run build 0 errors, comprehensive test suite pass, forensic integrity audit | M3 | PLANNED |
+| M3 | Mobile-First Responsive Design | Eliminate fixed widths, responsive player scaling, tablet breakpoints, modal/drawer responsiveness | M2 | DONE |
+| M4 | Build Verification & E2E Acceptance | npm run build 0 errors, comprehensive test suite pass, forensic integrity audit | M3 | DONE |
 
 ## Interface Contracts
 

@@ -25,11 +25,13 @@ import {
   Edit3,
   CheckCircle2,
   AlertCircle,
+  Key,
 } from 'lucide-react';
 import { ReelScript, Segment, VideoSubtitleSegment, ExtractedSubtitlesResult } from '../types';
 import { parseTimecodeRange, generateStructuredNLEJSON, generatePremiereProXML, generateDaVinciEDL, generateSRTSubtitles, triggerFileDownload } from '../utils/nleExport';
 import { extractAudioFromMediaFile, subtitlesToSRT, subtitlesToVTT, subtitlesToJSON } from '../utils/audioExtractor';
 import { sfx } from '../utils/sfxAudio';
+import { useProject } from '../context/ProjectContext';
 
 interface AIVideoEditorProps {
   reel: ReelScript;
@@ -84,6 +86,8 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
   initialSubtitles,
   onMediaUpload,
 }) => {
+  const { setIsApiKeyModalOpen } = useProject();
+
   // Video source state
   const [videoSourceUrl, setVideoSourceUrl] = useState<string>(
     initialVideoUrl || SAMPLE_RAW_VIDEOS[0].url
@@ -1099,19 +1103,33 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
                 )}
 
                 {transcribeError && (
-                  <div className="flex items-center justify-between gap-2 rounded-lg bg-red-950/50 border border-red-800/60 p-2 text-[11px] text-red-300">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
-                      <span className="truncate">{transcribeError}</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl bg-red-950/50 border border-red-800/60 p-3 text-[11px] text-red-300">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                      <span className="break-words leading-relaxed">{transcribeError}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleExtractSubtitles()}
-                      disabled={isTranscribing}
-                      className="rounded bg-red-900/60 hover:bg-red-800/60 border border-red-700/60 px-2 py-0.5 text-[10px] font-bold text-red-200 shrink-0 transition-colors"
-                    >
-                      Retry
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                      {(transcribeError.toLowerCase().includes('gemini') ||
+                        transcribeError.toLowerCase().includes('api key') ||
+                        transcribeError.toLowerCase().includes('key is missing')) && (
+                        <button
+                          type="button"
+                          onClick={() => setIsApiKeyModalOpen(true)}
+                          className="flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 px-2.5 py-1 text-[11px] font-bold text-zinc-950 transition-colors shadow-sm cursor-pointer"
+                        >
+                          <Key className="h-3.5 w-3.5" />
+                          <span>Set API Key</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleExtractSubtitles()}
+                        disabled={isTranscribing}
+                        className="rounded-lg bg-red-900/60 hover:bg-red-800/60 border border-red-700/60 px-2.5 py-1 text-[11px] font-bold text-red-200 transition-colors cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

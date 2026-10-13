@@ -133,10 +133,38 @@ export async function extractAudioFromMediaFile(
     // Slice to protect buffer if reused
     audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
   } catch (err: any) {
-    console.warn('Native decodeAudioData failed, checking direct fallback:', err);
-    throw new Error(
-      `Could not decode audio from "${file.name}". Ensure the file contains a valid audio track (MP4, WebM, MOV, MP3, WAV, M4A).`
-    );
+    console.warn('Native decodeAudioData failed, trying server-side FFmpeg extraction:', err);
+    onStatus?.('Browser audio decoder failed. Trying high-compatibility server FFmpeg extractor...');
+
+    try {
+      const videoBase64 = uint8ArrayToBase64(new Uint8Array(arrayBuffer));
+      const res = await fetch('/api/extract-audio-fallback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoBase64,
+          fileName: file.name,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Server audio extraction failed');
+      }
+
+      onStatus?.('Audio track extracted successfully via FFmpeg.');
+      return {
+        audioBase64: data.audioBase64,
+        mimeType: 'audio/wav',
+        durationSec: data.durationSec || 60,
+        sampleRate: 16000,
+      };
+    } catch (fallbackErr: any) {
+      throw new Error(
+        fallbackErr.message ||
+          `Could not decode audio from "${file.name}". Ensure the file contains a valid audio track (MP4, WebM, MOV, MP3, WAV, M4A).`
+      );
+    }
   } finally {
     if (audioContext.state !== 'closed') {
       audioContext.close().catch(() => {});

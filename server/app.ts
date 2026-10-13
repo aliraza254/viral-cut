@@ -1,5 +1,9 @@
 import express from 'express';
 import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { Type } from '@google/genai';
 import { ai } from './gemini';
 import { fetchYouTubeData } from './youtube';
@@ -9,14 +13,122 @@ import {
   extractErrorMessage,
 } from './geminiRunner';
 
+const execFileAsync = promisify(execFile);
+
+function getFfmpegBinary(): string {
+  const candidate = 'C:\\Users\\DELL\\AppData\\Roaming\\Python\\Python314\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe';
+  if (fs.existsSync(candidate)) return candidate;
+  return 'ffmpeg';
+}
+
 export function createApiApp() {
   const app = express();
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  app.use(express.json({ limit: '150mb' }));
+  app.use(express.urlencoded({ limit: '150mb', extended: true }));
 
   // Health check
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
+  // Gemini API Key Status Check
+  app.get('/api/config/status', (_req, res) => {
+    const hasKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 10);
+    return res.json({
+      hasGeminiKey: hasKey,
+      maskedKey: hasKey
+        ? `${process.env.GEMINI_API_KEY!.slice(0, 6)}...${process.env.GEMINI_API_KEY!.slice(-4)}`
+        : null,
+    });
+  });
+
+  // Dynamically set and save Gemini API key without server restart
+  app.post('/api/config/set-key', (req, res) => {
+    try {
+      const { apiKey } = req.body;
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 15) {
+        return res.status(400).json({ error: 'Please provide a valid Gemini API Key (starts with AIza...)' });
+      }
+
+      const cleanKey = apiKey.trim();
+      process.env.GEMINI_API_KEY = cleanKey;
+
+      const envPath = path.resolve(process.cwd(), '.env');
+      let envContent = '';
+      if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, 'utf-8');
+      }
+
+      if (envContent.includes('GEMINI_API_KEY=')) {
+        envContent = envContent.replace(/GEMINI_API_KEY=.*(?:\r?\n|$)/, `GEMINI_API_KEY=${cleanKey}\n`);
+      } else {
+        envContent = `${envContent.trim()}\nGEMINI_API_KEY=${cleanKey}\n`;
+      }
+      fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf-8');
+
+      console.log('[Config] GEMINI_API_KEY dynamically saved and activated.');
+      return res.json({ status: 'ok', message: 'API Key configured and activated successfully!' });
+    } catch (err: any) {
+      console.error('Error saving API key:', err);
+      return res.status(500).json({ error: err.message || 'Failed to save API key' });
+    }
+  });
+
+  // Robust Server-Side Audio Extraction Fallback (FFmpeg)
+  app.post('/api/extract-audio-fallback', async (req, res) => {
+    const { videoBase64, fileName = 'video.mp4' } = req.body;
+    if (!videoBase64) {
+      return res.status(400).json({ error: 'Video base64 data required' });
+    }
+
+    const tempDir = os.tmpdir();
+    const inputExt = path.extname(fileName) || '.mp4';
+    const inputPath = path.join(tempDir, `extract_in_${Date.now()}${inputExt}`);
+    const outputPath = path.join(tempDir, `extract_out_${Date.now()}.wav`);
+
+    try {
+      fs.writeFileSync(inputPath, Buffer.from(videoBase64, 'base64'));
+      const ffmpegBin = getFfmpegBinary();
+
+      await execFileAsync(ffmpegBin, [
+        '-y',
+        '-i', inputPath,
+        '-vn',
+        '-ar', '16000',
+        '-ac', '1',
+        '-f', 'wav',
+        outputPath,
+      ]);
+
+      if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
+        return res.status(400).json({
+          error: 'This video does not have an audio track. Please upload a video with spoken speech or voice.',
+        });
+      }
+
+      const wavBuffer = fs.readFileSync(outputPath);
+      const audioBase64 = wavBuffer.toString('base64');
+
+      return res.json({
+        audioBase64,
+        mimeType: 'audio/wav',
+        size: wavBuffer.length,
+      });
+    } catch (err: any) {
+      console.error('[Audio Fallback] Extraction error:', err);
+      const msg = err.message || '';
+      if (msg.includes('does not contain any stream') || msg.includes('matches no streams')) {
+        return res.status(400).json({
+          error: 'This video does not have an audio track. Please upload a video with spoken speech or voice.',
+        });
+      }
+      return res.status(500).json({
+        error: err.message || 'Could not extract audio track from video.',
+      });
+    } finally {
+      try { if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath); } catch {}
+      try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch {}
+    }
   });
 
   // Extract YouTube metadata & transcript (with automated Gemini audio transcription fallback)

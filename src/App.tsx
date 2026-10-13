@@ -4,6 +4,7 @@ import { NavigationShell } from './components/NavigationShell';
 import { CaptionStudio } from './pages/CaptionStudio';
 import { ViralReelGenerator } from './pages/ViralReelGenerator';
 import { SavedProjectsDrawer } from './components/SavedProjectsDrawer';
+import { ApiKeyModal } from './components/ApiKeyModal';
 
 /**
  * Inner shell containing navigation, page router, and global overlays.
@@ -15,6 +16,8 @@ function AppContent() {
     savedProjects,
     isSavedDrawerOpen,
     setIsSavedDrawerOpen,
+    isApiKeyModalOpen,
+    setIsApiKeyModalOpen,
     loadProject,
     deleteProject,
     authUser,
@@ -31,6 +34,7 @@ function AppContent() {
         onToolChange={setActiveTool}
         savedCount={savedProjects.length}
         onOpenSavedDrawer={() => setIsSavedDrawerOpen(true)}
+        onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
         user={authUser}
         userEmail={authUser?.email || null}
         onSignIn={signIn}
@@ -56,6 +60,12 @@ function AppContent() {
         onDeleteProject={deleteProject}
         user={authUser}
         onSignIn={signIn}
+      />
+
+      {/* Gemini API Key Configuration Modal */}
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
       />
     </div>
   );

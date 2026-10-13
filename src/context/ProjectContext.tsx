@@ -65,6 +65,8 @@ export interface ProjectContextValue {
   setSavedProjects: React.Dispatch<React.SetStateAction<SavedProject[]>>;
   isSavedDrawerOpen: boolean;
   setIsSavedDrawerOpen: (open: boolean) => void;
+  isApiKeyModalOpen: boolean;
+  setIsApiKeyModalOpen: (open: boolean) => void;
   projectSavedToast: boolean;
 
   // Cross-Tool Bridge Actions
@@ -124,8 +126,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [language, setLanguage] = useState<'english' | 'roman-urdu'>('english');
   const [activePlaybackSegment, setActivePlaybackSegment] = useState(0);
 
-  // Saved projects drawer & toast
+  // Saved projects drawer & toast & API key modal
   const [isSavedDrawerOpen, setIsSavedDrawerOpen] = useState(false);
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
   const [projectSavedToast, setProjectSavedToast] = useState(false);
 
   // Auth & Firestore State
@@ -406,6 +409,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setSavedProjects,
     isSavedDrawerOpen,
     setIsSavedDrawerOpen,
+    isApiKeyModalOpen,
+    setIsApiKeyModalOpen,
     projectSavedToast,
     transferToCaptionStudio,
     saveCurrentProject,
@@ -434,6 +439,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     authUser,
     savedProjects,
     isSavedDrawerOpen,
+    isApiKeyModalOpen,
     projectSavedToast,
     transferToCaptionStudio,
     saveCurrentProject,

@@ -8,6 +8,7 @@ import {
   User as UserIcon,
   Sparkles,
   Layers,
+  Key,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 
@@ -17,6 +18,7 @@ export interface NavigationShellProps {
   activeTool: ToolType;
   onToolChange: (tool: ToolType) => void;
   onOpenSavedDrawer: () => void;
+  onOpenApiKeyModal?: () => void;
   onAuthClick?: () => void;
   userEmail?: string | null;
   user?: User | null;
@@ -30,6 +32,7 @@ export const NavigationShell: React.FC<NavigationShellProps> = ({
   activeTool,
   onToolChange,
   onOpenSavedDrawer,
+  onOpenApiKeyModal,
   onAuthClick,
   userEmail,
   user,
@@ -110,6 +113,19 @@ export const NavigationShell: React.FC<NavigationShellProps> = ({
 
         {/* Right Actions: Saved Projects & Auth */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Gemini API Key Configuration Button */}
+          {onOpenApiKeyModal && (
+            <button
+              type="button"
+              onClick={onOpenApiKeyModal}
+              className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 hover:text-amber-200 transition-colors cursor-pointer shadow-sm"
+              title="Configure Google Gemini API Key"
+            >
+              <Key className="h-3.5 w-3.5 text-amber-400" />
+              <span className="hidden sm:inline">API Key</span>
+            </button>
+          )}
+
           {/* Saved Projects Button */}
           <button
             type="button"

@@ -20,11 +20,13 @@ import {
   Layers,
   Play,
   Volume2,
+  Key,
 } from 'lucide-react';
 import { SAMPLE_VIDEOS, SampleVideo } from '../data/samples';
 import { extractAudioFromMediaFile, subtitlesToSRT, subtitlesToVTT, subtitlesToJSON } from '../utils/audioExtractor';
 import { triggerFileDownload } from '../utils/nleExport';
 import { VideoSubtitleSegment, ExtractedSubtitlesResult } from '../types';
+import { useProject } from '../context/ProjectContext';
 
 interface VideoInputSectionProps {
   onGenerate: (payload: {
@@ -104,6 +106,7 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
   onVideoExtracted,
   onOpenVideoEditor,
 }) => {
+  const { setIsApiKeyModalOpen } = useProject();
   const [inputMode, setInputMode] = useState<'upload' | 'url' | 'transcript'>('upload');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [transcript, setTranscript] = useState('');
@@ -712,17 +715,31 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
                 <span>{fetchError}</span>
               </div>
             </div>
-            {uploadedVideoFile && uploadedVideoUrl && (
-              <button
-                type="button"
-                onClick={() => processVideoFile(uploadedVideoFile, uploadedVideoUrl)}
-                disabled={isTranscribingVideo}
-                className="flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 px-3 py-1.5 text-xs font-bold text-zinc-950 transition-all shadow-sm shrink-0 disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isTranscribingVideo ? 'animate-spin' : ''}`} />
-                <span>Retry Transcription</span>
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {(fetchError.toLowerCase().includes('gemini') ||
+                fetchError.toLowerCase().includes('api key') ||
+                fetchError.toLowerCase().includes('key is missing')) && (
+                <button
+                  type="button"
+                  onClick={() => setIsApiKeyModalOpen(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 px-3 py-1.5 text-xs font-bold text-zinc-950 transition-all shadow-sm cursor-pointer"
+                >
+                  <Key className="h-3.5 w-3.5" />
+                  <span>Set Gemini API Key</span>
+                </button>
+              )}
+              {uploadedVideoFile && uploadedVideoUrl && (
+                <button
+                  type="button"
+                  onClick={() => processVideoFile(uploadedVideoFile, uploadedVideoUrl)}
+                  disabled={isTranscribingVideo}
+                  className="flex items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-all shadow-sm shrink-0 disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isTranscribingVideo ? 'animate-spin text-amber-400' : ''}`} />
+                  <span>Retry</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 

@@ -39,6 +39,12 @@ interface AIVideoEditorProps {
   initialVideoUrl?: string | null;
   initialFileName?: string | null;
   initialSubtitles?: VideoSubtitleSegment[];
+  onMediaUpload?: (media: {
+    videoUrl: string;
+    fileName: string;
+    subtitles?: VideoSubtitleSegment[];
+    durationSec?: number;
+  }) => void;
 }
 
 // Preset sample RAW video options for instant testing
@@ -76,6 +82,7 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
   initialVideoUrl,
   initialFileName,
   initialSubtitles,
+  onMediaUpload,
 }) => {
   // Video source state
   const [videoSourceUrl, setVideoSourceUrl] = useState<string>(
@@ -138,6 +145,35 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
   // Export recording state
   const [isExportingVideo, setIsExportingVideo] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+
+  // Sync props when transferring media or switching between tools
+  useEffect(() => {
+    if (initialVideoUrl) {
+      setVideoSourceUrl(initialVideoUrl);
+    }
+    if (initialFileName) {
+      setUploadedFileName(initialFileName);
+    }
+    if (initialSubtitles && initialSubtitles.length > 0) {
+      setExtractedSubtitles(initialSubtitles);
+      setUseExtractedSubtitles(true);
+      setCustomSegments(
+        initialSubtitles.map((sub, i) => ({
+          timecode:
+            sub.timecode ||
+            `00:${String(Math.floor(sub.startSec)).padStart(2, '0')} - 00:${String(Math.floor(sub.endSec)).padStart(2, '0')}`,
+          startSec: sub.startSec,
+          endSec: sub.endSec,
+          spokenScript: sub.text,
+          visualCue: sub.visualCue || (i === 0 ? 'Close-up punch-in' : 'Medium shot cut'),
+          onScreenText:
+            sub.onScreenText || sub.text.split(' ').slice(0, 3).join(' ').toUpperCase(),
+          soundEffect: sub.soundEffect || (i === 0 ? 'Impact boom' : 'Whoosh'),
+          bRollKeywords: [],
+        }))
+      );
+    }
+  }, [initialVideoUrl, initialFileName, initialSubtitles]);
 
   // Refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -264,6 +300,7 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
       setUploadedFile(file);
       setIsPlaying(false);
       handleReset();
+      onMediaUpload?.({ videoUrl: url, fileName: file.name });
       // Auto-extract subtitles from the uploaded file
       await handleExtractSubtitles(file);
     }
@@ -326,6 +363,12 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
 
       setCustomSegments(converted);
       setUseExtractedSubtitles(true);
+      onMediaUpload?.({
+        videoUrl: videoSourceUrl,
+        fileName: targetFile.name,
+        subtitles: result.subtitles || [],
+        durationSec: result.durationSec,
+      });
       sfx.playDing();
     } catch (err: any) {
       console.error('Subtitle extraction error:', err);
@@ -621,10 +664,10 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
       </div>
 
       {/* Main Two-Column Studio Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-12 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: 9:16 Vertical Video Player Canvas & Dynamic Overlays (5 Cols) */}
-        <div className="lg:col-span-5 flex flex-col items-center">
-          <div className="w-full max-w-[340px] sm:max-w-[380px] rounded-3xl border-4 border-zinc-800 bg-black shadow-2xl p-2 relative overflow-hidden ring-1 ring-zinc-700/50">
+        <div className="md:col-span-5 lg:col-span-5 flex flex-col items-center md:sticky md:top-20">
+          <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px] aspect-[9/16] rounded-3xl border-4 border-zinc-800 bg-black shadow-2xl p-1.5 sm:p-2 relative overflow-hidden ring-1 ring-zinc-700/50">
             {/* 9:16 Aspect Container */}
             <div className="relative aspect-[9/16] w-full rounded-2xl overflow-hidden bg-zinc-950 flex items-center justify-center">
               {/* HTML5 Video Element */}
@@ -799,7 +842,7 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
         </div>
 
         {/* Right Column: AI Auto-Edit Controls, Timeline Cuts, & Source Selection (7 Cols) */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="md:col-span-7 lg:col-span-7 space-y-6">
           {/* Step 1: RAW Video Source Picker */}
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 sm:p-5 shadow-xl">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-800 mb-3">
@@ -937,6 +980,7 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
                     setVideoSourceUrl(sample.url);
                     setUploadedFileName(null);
                     handleReset();
+                    onMediaUpload?.({ videoUrl: sample.url, fileName: sample.label });
                   }}
                   className={`flex flex-col text-left rounded-xl border p-2.5 transition-all ${
                     videoSourceUrl === sample.url && !uploadedFileName

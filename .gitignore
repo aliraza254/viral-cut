@@ -34,3 +34,17 @@ lerna-debug.log*
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Python & Backend
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+backend/renders/
+backend/uploads/
+backend/temp/
+
+# Agent execution scratch
+.agents/

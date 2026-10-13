@@ -69,8 +69,8 @@ export const HookManagerModal: React.FC<HookManagerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-2xl rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-sm">
+      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:p-6 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
           <div className="flex items-center gap-2.5">
@@ -86,7 +86,8 @@ export const HookManagerModal: React.FC<HookManagerModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            className="rounded-lg p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            title="Close Modal"
           >
             <X className="h-5 w-5" />
           </button>
@@ -117,7 +118,7 @@ export const HookManagerModal: React.FC<HookManagerModalProps> = ({
         </div>
 
         {/* Variations List */}
-        <div className="mt-3 max-h-96 space-y-3 overflow-y-auto pr-1">
+        <div className="mt-3 flex-1 max-h-[60vh] space-y-3 overflow-y-auto pr-1 min-h-0">
           {isLoading && (
             <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
               <RefreshCw className="h-6 w-6 animate-spin text-amber-400" />

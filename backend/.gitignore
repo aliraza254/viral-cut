@@ -1,0 +1,31 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# Environment and secrets
+.env
+.env.local
+*.env
+!*.env.example
+
+# Temporary media & render output
+renders/
+uploads/
+temp/
+*.mp4
+*.webm
+*.mov
+*.wav
+*.mp3
+*.ass
+*.srt

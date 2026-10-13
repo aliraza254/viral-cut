@@ -210,7 +210,7 @@ export const MobileReelSimulator: React.FC<MobileReelSimulatorProps> = ({
   return (
     <div className="flex flex-col items-center">
       {/* Simulator Control Toolbar */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-900/90 p-2.5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 w-full max-w-[280px] sm:max-w-[340px] rounded-xl border border-zinc-800 bg-zinc-900/90 p-2">
         <div className="flex items-center gap-1.5">
           <button
             onClick={togglePlay}
@@ -282,10 +282,10 @@ export const MobileReelSimulator: React.FC<MobileReelSimulatorProps> = ({
 
       {/* 9:16 Mobile Phone Frame */}
       <div
-        className={`relative flex flex-col justify-between overflow-hidden rounded-[40px] border-4 border-zinc-700 bg-zinc-950 shadow-2xl transition-all ${
+        className={`relative flex flex-col justify-between overflow-hidden rounded-[32px] sm:rounded-[40px] border-4 border-zinc-700 bg-zinc-950 shadow-2xl transition-all ${
           isTeleprompterFullscreen
             ? 'fixed inset-0 z-50 rounded-none border-none max-w-none'
-            : 'h-[640px] w-[340px]'
+            : 'w-full max-w-[280px] sm:max-w-[340px] aspect-[9/16] max-h-[75vh] flex flex-col justify-between'
         } ${isMirrorMode ? 'scale-x-[-1]' : ''}`}
       >
         {/* Notch / Speaker bar */}

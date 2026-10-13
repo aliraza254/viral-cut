@@ -117,7 +117,7 @@ export const EditorCutSheetModal: React.FC<EditorCutSheetModalProps> = ({
   return (
     <div className="space-y-6">
       {/* Action Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 sm:p-5 shadow-xl">
         <div>
           <div className="flex items-center gap-2">
             <Film className="h-4 w-4 text-blue-400" />
@@ -217,8 +217,8 @@ export const EditorCutSheetModal: React.FC<EditorCutSheetModalProps> = ({
       </div>
 
       {/* Structured Table Layout */}
-      <div className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
-        <table className="w-full text-left border-collapse text-xs">
+      <div className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl max-w-full">
+        <table className="w-full min-w-[640px] text-left border-collapse text-xs">
           <thead>
             <tr className="border-b border-zinc-800 bg-zinc-900/80 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
               <th className="py-3 px-4">Timecode</th>

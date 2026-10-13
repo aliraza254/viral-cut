@@ -26,7 +26,7 @@ export const SavedProjectsDrawer: React.FC<SavedProjectsDrawerProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm">
-      <div className="relative flex h-full w-full max-w-md flex-col border-l border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
+      <div className="relative flex h-full w-full max-w-md flex-col border-l border-zinc-800 bg-zinc-950 p-4 sm:p-6 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
           <div>
@@ -41,7 +41,8 @@ export const SavedProjectsDrawer: React.FC<SavedProjectsDrawerProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            className="rounded-lg p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            title="Close Drawer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -51,9 +52,9 @@ export const SavedProjectsDrawer: React.FC<SavedProjectsDrawerProps> = ({
         <div className="mt-4">
           {user ? (
             <div className="flex items-center justify-between rounded-xl border border-emerald-900/60 bg-emerald-950/20 px-3 py-2 text-xs">
-              <div className="flex items-center gap-2 text-emerald-300">
-                <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="truncate max-w-[240px]">Connected: {user.email}</span>
+              <div className="flex items-center gap-2 text-emerald-300 min-w-0 flex-1">
+                <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                <span className="truncate min-w-0 flex-1">Connected: {user.email}</span>
               </div>
             </div>
           ) : (

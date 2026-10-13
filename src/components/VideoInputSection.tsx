@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Youtube,
   FileText,
@@ -30,7 +30,7 @@ interface VideoInputSectionProps {
   onGenerate: (payload: {
     transcript: string;
     videoTitle: string;
-    platform: 'tiktok' | 'reels' | 'shorts';
+    platform?: 'tiktok' | 'reels' | 'shorts' | string;
     language: 'english' | 'roman-urdu';
     viralStyle: string;
     clipDuration: string;
@@ -38,10 +38,12 @@ interface VideoInputSectionProps {
     videoUrl?: string;
   }) => Promise<void>;
   isLoading: boolean;
-  platform: 'tiktok' | 'reels' | 'shorts';
-  onPlatformChange: (p: 'tiktok' | 'reels' | 'shorts') => void;
+  platform?: 'tiktok' | 'reels' | 'shorts' | string;
+  onPlatformChange?: (p: 'tiktok' | 'reels' | 'shorts') => void;
   language: 'english' | 'roman-urdu';
   onLanguageChange: (lang: 'english' | 'roman-urdu') => void;
+  transcriptValue?: string;
+  onTranscriptChange?: (val: string) => void;
   onVideoExtracted?: (data: {
     videoUrl: string;
     fileName: string;
@@ -93,10 +95,12 @@ const VIRAL_STYLES = [
 export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
   onGenerate,
   isLoading,
-  platform,
+  platform = 'reels',
   onPlatformChange,
   language,
   onLanguageChange,
+  transcriptValue,
+  onTranscriptChange,
   onVideoExtracted,
   onOpenVideoEditor,
 }) => {
@@ -104,6 +108,16 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [transcript, setTranscript] = useState('');
   const [videoTitle, setVideoTitle] = useState('');
+
+  // Sync incoming transcript value when transferring from Tool 1
+  useEffect(() => {
+    if (transcriptValue !== undefined && transcriptValue !== transcript) {
+      setTranscript(transcriptValue);
+      if (transcriptValue.trim().length > 0) {
+        setInputMode('transcript');
+      }
+    }
+  }, [transcriptValue]);
   const [viralStyle, setViralStyle] = useState('pattern-interrupt');
   const [clipDuration, setClipDuration] = useState('30-60s');
   const [targetAudience, setTargetAudience] = useState('Founders, creators, and ambitious mobile scrollers');
@@ -318,7 +332,7 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
     onGenerate({
       transcript,
       videoTitle: videoTitle || 'Untitled Video',
-      platform,
+      platform: platform || 'reels',
       language,
       viralStyle,
       clipDuration,
@@ -677,7 +691,10 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
           </div>
           <textarea
             value={transcript}
-            onChange={(e) => setTranscript(e.target.value)}
+            onChange={(e) => {
+              setTranscript(e.target.value);
+              onTranscriptChange?.(e.target.value);
+            }}
             rows={5}
             placeholder="Paste raw transcript, video spoken text, podcast notes, or monologue here..."
             className="w-full rounded-xl border border-zinc-800 bg-zinc-950 p-3.5 font-mono text-xs leading-relaxed text-zinc-200 placeholder-zinc-600 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
@@ -708,8 +725,8 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
           </div>
         )}
 
-        {/* Viral Parameters Grid */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Viral Parameters Grid (Standardized 9:16 Vertical Short-Form Format) */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {/* Output Language */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
@@ -744,49 +761,12 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
             </div>
           </div>
 
-          {/* Platform */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-300">Target Platform</label>
-            <div className="grid grid-cols-3 gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
-              <button
-                type="button"
-                onClick={() => onPlatformChange('tiktok')}
-                className={`rounded-lg py-1.5 text-xs font-medium transition-all ${
-                  platform === 'tiktok'
-                    ? 'bg-rose-950/80 text-rose-200 border border-rose-800/80'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                TikTok
-              </button>
-              <button
-                type="button"
-                onClick={() => onPlatformChange('reels')}
-                className={`rounded-lg py-1.5 text-xs font-medium transition-all ${
-                  platform === 'reels'
-                    ? 'bg-purple-950/80 text-purple-200 border border-purple-800/80'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                Reels
-              </button>
-              <button
-                type="button"
-                onClick={() => onPlatformChange('shorts')}
-                className={`rounded-lg py-1.5 text-xs font-medium transition-all ${
-                  platform === 'shorts'
-                    ? 'bg-red-950/80 text-red-200 border border-red-800/80'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                Shorts
-              </button>
-            </div>
-          </div>
-
           {/* Duration */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-300">Target Duration</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-zinc-300">Target Duration (9:16)</label>
+              <span className="text-[10px] text-zinc-500 font-mono">Vertical Format</span>
+            </div>
             <div className="grid grid-cols-3 gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
               {['15-30s', '30-60s', '60-90s'].map((d) => (
                 <button

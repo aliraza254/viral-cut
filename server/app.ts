@@ -12,6 +12,11 @@ import {
   safeJsonParse,
   extractErrorMessage,
 } from './geminiRunner';
+import {
+  getProviderStatus,
+  generateViralReelsUnified,
+  transcribeWithOpenAIWhisper,
+} from './llmRunner';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,43 +36,70 @@ export function createApiApp() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
-  // Gemini API Key Status Check
+  // Multi-Provider AI API Key Status Check
   app.get('/api/config/status', (_req, res) => {
-    const hasKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 10);
-    return res.json({
-      hasGeminiKey: hasKey,
-      maskedKey: hasKey
-        ? `${process.env.GEMINI_API_KEY!.slice(0, 6)}...${process.env.GEMINI_API_KEY!.slice(-4)}`
-        : null,
-    });
+    return res.json(getProviderStatus());
   });
 
-  // Dynamically set and save Gemini API key without server restart
+  // Dynamically set and save multi-provider API keys without server restart
+  app.post('/api/config/set-keys', (req, res) => {
+    try {
+      const { geminiKey, openaiKey, claudeKey } = req.body;
+      const envPath = path.resolve(process.cwd(), '.env');
+      let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
+
+      const updateKey = (keyName: string, val: string | undefined) => {
+        if (typeof val === 'string' && val.trim().length > 5) {
+          const clean = val.trim();
+          process.env[keyName] = clean;
+          if (envContent.includes(`${keyName}=`)) {
+            envContent = envContent.replace(new RegExp(`${keyName}=.*(?:\r?\n|$)`), `${keyName}=${clean}\n`);
+          } else {
+            envContent = `${envContent.trim()}\n${keyName}=${clean}\n`;
+          }
+        }
+      };
+
+      updateKey('GEMINI_API_KEY', geminiKey);
+      updateKey('OPENAI_API_KEY', openaiKey);
+      updateKey('ANTHROPIC_API_KEY', claudeKey);
+
+      fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf-8');
+      console.log('[Config] AI Provider API keys dynamically saved and activated.');
+      return res.json({ status: 'ok', message: 'API Keys configured successfully!' });
+    } catch (err: any) {
+      console.error('Error saving API keys:', err);
+      return res.status(500).json({ error: err.message || 'Failed to save API keys' });
+    }
+  });
+
+  // Dynamically set and save single API key (backward compatible)
   app.post('/api/config/set-key', (req, res) => {
     try {
       const { apiKey } = req.body;
-      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 15) {
-        return res.status(400).json({ error: 'Please provide a valid Gemini API Key (starts with AIza...)' });
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
+        return res.status(400).json({ error: 'Please provide a valid API Key' });
       }
 
       const cleanKey = apiKey.trim();
-      process.env.GEMINI_API_KEY = cleanKey;
+      let keyName = 'GEMINI_API_KEY';
+      if (cleanKey.startsWith('sk-ant-')) keyName = 'ANTHROPIC_API_KEY';
+      else if (cleanKey.startsWith('sk-')) keyName = 'OPENAI_API_KEY';
+
+      process.env[keyName] = cleanKey;
 
       const envPath = path.resolve(process.cwd(), '.env');
-      let envContent = '';
-      if (fs.existsSync(envPath)) {
-        envContent = fs.readFileSync(envPath, 'utf-8');
-      }
+      let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
 
-      if (envContent.includes('GEMINI_API_KEY=')) {
-        envContent = envContent.replace(/GEMINI_API_KEY=.*(?:\r?\n|$)/, `GEMINI_API_KEY=${cleanKey}\n`);
+      if (envContent.includes(`${keyName}=`)) {
+        envContent = envContent.replace(new RegExp(`${keyName}=.*(?:\r?\n|$)`), `${keyName}=${cleanKey}\n`);
       } else {
-        envContent = `${envContent.trim()}\nGEMINI_API_KEY=${cleanKey}\n`;
+        envContent = `${envContent.trim()}\n${keyName}=${cleanKey}\n`;
       }
       fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf-8');
 
-      console.log('[Config] GEMINI_API_KEY dynamically saved and activated.');
-      return res.json({ status: 'ok', message: 'API Key configured and activated successfully!' });
+      console.log(`[Config] ${keyName} dynamically saved and activated.`);
+      return res.json({ status: 'ok', message: `${keyName} configured and activated successfully!` });
     } catch (err: any) {
       console.error('Error saving API key:', err);
       return res.status(500).json({ error: err.message || 'Failed to save API key' });
@@ -201,6 +233,9 @@ Return only the transcript lines with timestamps.`;
 
   // Transcribe uploaded video/audio track & generate timed subtitles
   app.post('/api/transcribe-video', async (req, res) => {
+    const tempDir = os.tmpdir();
+    const tempWav = path.join(tempDir, `whisper_in_${Date.now()}.wav`);
+
     try {
       const {
         audioBase64,
@@ -209,19 +244,38 @@ Return only the transcript lines with timestamps.`;
         videoTitle = 'Uploaded Video',
       } = req.body;
 
-      if (!process.env.GEMINI_API_KEY) {
-        return res.status(400).json({
-          error: 'Gemini API Key is missing. Please set GEMINI_API_KEY in your .env file to enable AI audio transcription (get a free key at https://aistudio.google.com/app/apikey).',
-        });
-      }
-
       if (!audioBase64) {
         return res.status(400).json({ error: 'Audio track base64 data is required for transcription' });
       }
 
-      const isRomanUrdu = language === 'roman-urdu';
+      fs.writeFileSync(tempWav, Buffer.from(audioBase64, 'base64'));
 
-      const prompt = `You are an expert audio transcriber and viral video subtitle synchronizer for short-form video (TikTok, Instagram Reels, YouTube Shorts).
+      // 1. PRIMARY: Attempt Local Python Whisper (100% Free, 0 API keys)
+      try {
+        const scriptPath = path.resolve(process.cwd(), 'backend', 'app', 'whisper_transcribe.py');
+        const pythonExe = process.platform === 'win32' ? 'python' : 'python3';
+        console.log('[Transcribe] Attempting local Python Whisper extraction...');
+
+        const { stdout } = await execFileAsync(pythonExe, [scriptPath, '--audio', tempWav], {
+          timeout: 45000,
+        });
+
+        const localResult = JSON.parse(stdout.trim());
+        if (!localResult.error && localResult.subtitles && localResult.subtitles.length > 0) {
+          console.log(`[Transcribe] Successfully transcribed locally via ${localResult.engine}! (0 API keys used)`);
+          return res.json(localResult);
+        }
+      } catch (localErr: any) {
+        console.log('[Transcribe] Local Python Whisper not available or skipped, attempting Cloud fallback...');
+      }
+
+      // 2. FALLBACK A: Google Gemini Multimodal Audio Transcription
+      if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 10) {
+        try {
+          console.log('[Transcribe] Running Cloud Fallback: Google Gemini Audio...');
+          const isRomanUrdu = language === 'roman-urdu';
+
+          const prompt = `You are an expert audio transcriber and viral video subtitle synchronizer for short-form video (TikTok, Instagram Reels, YouTube Shorts).
 Your task is to transcribe the speech from this audio recording with precise timestamps and generate high-impact subtitle segments.
 
 LANGUAGE INSTRUCTIONS:
@@ -250,247 +304,136 @@ SUBTITLE REQUIREMENTS:
 
 Return ONLY a valid JSON object matching the requested schema.`;
 
-      // Multi-model fallback list with automatic retry on 503 high demand spikes
-      const { response, usedModel } = await generateContentWithFallback({
-        models: ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'],
-        contents: [
-          {
-            role: 'user',
-            parts: [
+          const { response, usedModel } = await generateContentWithFallback({
+            models: ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'],
+            contents: [
               {
-                inlineData: {
-                  mimeType,
-                  data: audioBase64,
-                },
-              },
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              detectedLanguage: { type: Type.STRING },
-              durationSec: { type: Type.NUMBER },
-              summary: { type: Type.STRING },
-              suggestedTitle: { type: Type.STRING },
-              fullTranscript: { type: Type.STRING },
-              subtitles: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    startSec: { type: Type.NUMBER },
-                    endSec: { type: Type.NUMBER },
-                    timecode: { type: Type.STRING },
-                    text: { type: Type.STRING },
-                    onScreenText: { type: Type.STRING },
-                    visualCue: { type: Type.STRING },
-                    soundEffect: { type: Type.STRING },
-                    words: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          word: { type: Type.STRING },
-                          startSec: { type: Type.NUMBER },
-                          endSec: { type: Type.NUMBER },
-                        },
-                        required: ['word', 'startSec', 'endSec'],
-                      },
+                role: 'user',
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType,
+                      data: audioBase64,
                     },
                   },
-                  required: ['startSec', 'endSec', 'timecode', 'text'],
+                  {
+                    text: prompt,
+                  },
+                ],
+              },
+            ],
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  detectedLanguage: { type: Type.STRING },
+                  durationSec: { type: Type.NUMBER },
+                  summary: { type: Type.STRING },
+                  suggestedTitle: { type: Type.STRING },
+                  fullTranscript: { type: Type.STRING },
+                  subtitles: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        id: { type: Type.STRING },
+                        startSec: { type: Type.NUMBER },
+                        endSec: { type: Type.NUMBER },
+                        timecode: { type: Type.STRING },
+                        text: { type: Type.STRING },
+                        onScreenText: { type: Type.STRING },
+                        visualCue: { type: Type.STRING },
+                        soundEffect: { type: Type.STRING },
+                        words: {
+                          type: Type.ARRAY,
+                          items: {
+                            type: Type.OBJECT,
+                            properties: {
+                              word: { type: Type.STRING },
+                              startSec: { type: Type.NUMBER },
+                              endSec: { type: Type.NUMBER },
+                            },
+                            required: ['word', 'startSec', 'endSec'],
+                          },
+                        },
+                      },
+                      required: ['startSec', 'endSec', 'timecode', 'text'],
+                    },
+                  },
                 },
+                required: ['detectedLanguage', 'fullTranscript', 'subtitles'],
               },
             },
-            required: ['detectedLanguage', 'fullTranscript', 'subtitles'],
-          },
-        },
-      });
+          });
 
-      const responseText = response.text;
-      if (!responseText) {
-        throw new Error('Transcription model did not return any subtitle text');
+          const responseText = response.text;
+          if (responseText) {
+            const parsed = safeJsonParse(responseText);
+            return res.json({ ...parsed, _engine: usedModel });
+          }
+        } catch (geminiErr: any) {
+          console.warn('[Transcribe] Gemini cloud fallback error, checking OpenAI Whisper fallback...', geminiErr);
+        }
       }
 
-      const parsed = safeJsonParse(responseText);
-      return res.json({ ...parsed, _engine: usedModel });
+      // 3. FALLBACK B: OpenAI Whisper API
+      if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim().length > 15) {
+        try {
+          console.log('[Transcribe] Running Cloud Fallback: OpenAI Whisper API...');
+          const rawBuffer = fs.readFileSync(tempWav);
+          const whisperResult = await transcribeWithOpenAIWhisper(rawBuffer, `${videoTitle || 'audio'}.wav`);
+          return res.json(whisperResult);
+        } catch (openaiErr: any) {
+          console.warn('[Transcribe] OpenAI Whisper fallback failed:', openaiErr);
+        }
+      }
+
+      return res.status(400).json({
+        error:
+          'Local Whisper is not yet installed in Python, and no Gemini or OpenAI API Key was configured. Please add an API key in the app (or install faster-whisper) to transcribe audio.',
+      });
     } catch (error: any) {
       console.error('Error in /api/transcribe-video:', error);
       const cleanMsg = extractErrorMessage(error);
       return res.status(500).json({
         error: cleanMsg || 'Failed to transcribe audio and extract subtitles from video',
       });
+    } finally {
+      try { if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav); } catch {}
     }
   });
 
-  // Generate Viral Reels / Shorts Scripts
+  // Generate Viral Reels / Shorts Scripts (Supports Gemini, OpenAI GPT-4o, and Claude 3.5 Sonnet)
   app.post('/api/generate-viral-reels', async (req, res) => {
     try {
       const {
         transcript,
         videoTitle = 'Video',
-        platform = 'reels', // 'reels' | 'tiktok' | 'shorts'
-        language = 'english', // 'english' | 'roman-urdu'
+        platform = 'reels',
+        language = 'english',
         viralStyle = 'pattern-interrupt',
         clipDuration = '30-60s',
         targetAudience = 'general mobile audience seeking engaging insights',
         strategyFeedback = '',
+        provider = 'auto',
       } = req.body;
-
-      if (!process.env.GEMINI_API_KEY) {
-        return res.status(400).json({
-          error: 'Gemini API Key is missing. Please set GEMINI_API_KEY in your .env file to generate viral reels scripts (get a free key at https://aistudio.google.com/app/apikey).',
-        });
-      }
 
       if (!transcript || transcript.trim().length < 20) {
         return res.status(400).json({ error: 'Please provide a valid transcript or video content.' });
       }
 
-      const isRomanUrdu = language === 'roman-urdu';
-
-      const systemInstruction = `You are a world-class viral short-form retention director and master scriptwriter for YouTube Shorts, Instagram Reels, and TikTok (working with top creators like Alex Hormozi, MrBeast, Colin & Samir, Ali Abdaal).
-
-Your goal: Take a long-form video transcript or topic and engineer 2 to 3 DISTINCT, high-probability viral short scripts (15-60s) that WILL blow up on the algorithms.
-
-CRITICAL REQUIREMENTS:
-1. OUTPUT LANGUAGE:
-   ${
-     isRomanUrdu
-       ? `**MANDATORY LANGUAGE: URDU (ROMAN) / ROMAN URDU**
-   - The spokenScript, startingPunchline, closingPunchline, soundBiteQuote, and onScreenText MUST be written in natural, punchy, conversational ROMAN URDU (Urdu written using the English/Latin alphabet, e.g., "Agar aap abhi tak yeh ghalti kar rahay hain toh foran ruk jayen!", "99% log yeh baat bilkul nahi jaantay...", "Yeh secret aapki growth ko 10x kar dega").
-   - You can include common modern creator English buzzwords where natural (like "views", "video", "content", "algorithm", "secret", "money", "offer"), exactly like top Pakistani and South Asian viral creators speak.
-   - Do NOT use Arabic/Urdu script (نستعلیق), ONLY use Latin/English letters (Roman Urdu).
-   - Visual cues and sound effect descriptions can remain in English for the video editor.`
-       : `**LANGUAGE: ENGLISH**
-   - All spoken text, hooks, and on-screen text must be in fluent, compelling English.`
-   }
-2. DO NOT simply copy or summarize the original video verbatim! The new content must be FRESH, punchy, conversational, and completely adapted for high-speed mobile retention.
-3. STARTING PUNCHLINE (THE HOOK): Must stop the thumb scroll in the first 0 to 2.5 seconds. Use visceral pattern-interrupts, contrarian statements, emotional stakes, or curiosity loops. Never start with "Hey guys", "In this video", or weak intros.
-4. CLOSING PUNCHLINE & INFINITE LOOP: The ending line must be memorable, punchy, and ideally link back into the starting hook so the video loops endlessly without a noticeable seam.
-5. STRUCTURED SEGMENTS WITH TIMESTAMPS: Break each short into 4-6 chronological segments (e.g. 00:00-00:03, 00:03-00:12, etc.).
-6. FOR EVERY SEGMENT PROVIDE:
-   - timecode (e.g. "00:00 - 00:03")
-   - startSec & endSec (numbers)
-   - spokenScript: The exact words for the creator to say into the camera (use ALL-CAPS or *asterisks* on punchy emphasis words).
-   - visualCue: Precise camera direction & creator action (e.g., "Close-up rapid zoom, lean in, drop sunglasses", "Wide shot, pacing in front of whiteboard").
-   - onScreenText: 2 to 5 words kinetic subtitle / sticker overlay for the editor (e.g., ${isRomanUrdu ? '"KABHI NA KARO ❌", "99% GHATAY MEIN"' : '"NEVER DO THIS ❌", "99% WRONG"'}).
-   - soundEffect: Editor audio cue (e.g., "Bass drop + Record scratch", "Glitch swoosh", "Pop sound").
-   - bRollKeywords: 2-3 exact stock footage search terms (e.g., ["exhausted office worker", "clocks spinning fast"]).
-   - musicMood: Backing track recommendation (e.g., "Fast dark phonk beat", "Lofi mystery chord").
-7. VIRALITY ANALYSIS: Explain why this reel has high viral potential, the hook mechanics, predicted retention score (0-100), and expected retention curve.
-${strategyFeedback ? `\nADAPTATION FROM PAST PERFORMANCE STRATEGY:\n${strategyFeedback}` : ''}
-`;
-
-      const prompt = `Analyze this video transcript and generate 2 to 3 viral ${platform.toUpperCase()} scripts in "${viralStyle}" style, target length ${clipDuration}.
-OUTPUT LANGUAGE REQUIREMENT: ${isRomanUrdu ? 'ROMAN URDU (Urdu in Latin/English alphabet)' : 'ENGLISH'}.
-
-Video Title: ${videoTitle}
-Target Audience: ${targetAudience}
-
-Transcript Content:
-"""
-${transcript.slice(0, 16000)}
-"""
-
-Generate a complete JSON response matching the required schema. Ensure the starting line is intensely magnetic and the visual scene cues give the video editor exact instructions.`;
-
-      const { response } = await generateContentWithFallback({
-        models: ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'],
-        contents: prompt,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              reels: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    title: { type: Type.STRING, description: 'Catchy viral title' },
-                    hookType: { type: Type.STRING, description: 'Pattern Interrupt / Contrarian Truth / Curiosity Gap / etc.' },
-                    startingPunchline: { type: Type.STRING, description: 'The intense 0-3 second spoken hook' },
-                    closingPunchline: { type: Type.STRING, description: 'The final punchline / seamless loop line' },
-                    estimatedDuration: { type: Type.STRING, description: 'e.g. 42s' },
-                    viralityScore: { type: Type.NUMBER, description: 'Predicted virality score between 75 and 99' },
-                    whyItWillBlowUp: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                      description: '3 reasons why viewers will watch and share this'
-                    },
-                    soundBiteQuote: { type: Type.STRING, description: 'Short memorable quote for comments or cover image' },
-                    hashtags: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                      description: '5 high-impact viral tags'
-                    },
-                    segments: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          timecode: { type: Type.STRING, description: 'e.g. 00:00 - 00:03' },
-                          startSec: { type: Type.NUMBER },
-                          endSec: { type: Type.NUMBER },
-                          spokenScript: { type: Type.STRING, description: 'Spoken line' },
-                          visualCue: { type: Type.STRING, description: 'Camera direction, actor gesture' },
-                          onScreenText: { type: Type.STRING, description: 'Short bold caption overlay' },
-                          soundEffect: { type: Type.STRING, description: 'Audio sound effect' },
-                          bRollKeywords: {
-                            type: Type.ARRAY,
-                            items: { type: Type.STRING },
-                          },
-                          musicMood: { type: Type.STRING },
-                        },
-                        required: ['timecode', 'startSec', 'endSec', 'spokenScript', 'visualCue', 'onScreenText', 'soundEffect'],
-                      },
-                    },
-                    retentionGraph: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          second: { type: Type.NUMBER },
-                          retentionPct: { type: Type.NUMBER },
-                        },
-                        required: ['second', 'retentionPct'],
-                      },
-                    },
-                  },
-                  required: [
-                    'id',
-                    'title',
-                    'hookType',
-                    'startingPunchline',
-                    'closingPunchline',
-                    'estimatedDuration',
-                    'viralityScore',
-                    'whyItWillBlowUp',
-                    'soundBiteQuote',
-                    'hashtags',
-                    'segments',
-                    'retentionGraph',
-                  ],
-                },
-              },
-            },
-            required: ['reels'],
-          },
-        },
+      const parsedData = await generateViralReelsUnified({
+        transcript,
+        videoTitle,
+        platform,
+        language,
+        viralStyle,
+        clipDuration,
+        targetAudience,
+        strategyFeedback,
+        provider,
       });
-
-      const responseText = response.text || '{}';
-      const parsedData = safeJsonParse(responseText);
 
       return res.json(parsedData);
     } catch (error: any) {

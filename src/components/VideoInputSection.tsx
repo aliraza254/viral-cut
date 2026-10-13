@@ -725,7 +725,7 @@ export const VideoInputSection: React.FC<VideoInputSectionProps> = ({
                   className="flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 px-3 py-1.5 text-xs font-bold text-zinc-950 transition-all shadow-sm cursor-pointer"
                 >
                   <Key className="h-3.5 w-3.5" />
-                  <span>Set Gemini API Key</span>
+                  <span>Set AI API Key</span>
                 </button>
               )}
               {uploadedVideoFile && uploadedVideoUrl && (

@@ -31,6 +31,16 @@ export function isTransientGeminiError(error: any): boolean {
  */
 export function extractErrorMessage(error: any): string {
   if (!error) return 'Unknown error';
+  const str = String(error?.message || error);
+  if (
+    str.includes('invalid_grant') ||
+    str.includes('API key') ||
+    str.includes('API_KEY') ||
+    str.includes('CREDENTIALS_MISSING') ||
+    !process.env.GEMINI_API_KEY
+  ) {
+    return 'Gemini API Key is missing or invalid. Please add your GEMINI_API_KEY in the .env file (get a free key at https://aistudio.google.com/app/apikey).';
+  }
   if (typeof error === 'string') {
     try {
       const parsed = JSON.parse(error);

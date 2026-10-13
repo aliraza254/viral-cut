@@ -97,6 +97,12 @@ Return only the transcript lines with timestamps.`;
         videoTitle = 'Uploaded Video',
       } = req.body;
 
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(400).json({
+          error: 'Gemini API Key is missing. Please set GEMINI_API_KEY in your .env file to enable AI audio transcription (get a free key at https://aistudio.google.com/app/apikey).',
+        });
+      }
+
       if (!audioBase64) {
         return res.status(400).json({ error: 'Audio track base64 data is required for transcription' });
       }
@@ -225,6 +231,12 @@ Return ONLY a valid JSON object matching the requested schema.`;
         targetAudience = 'general mobile audience seeking engaging insights',
         strategyFeedback = '',
       } = req.body;
+
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(400).json({
+          error: 'Gemini API Key is missing. Please set GEMINI_API_KEY in your .env file to generate viral reels scripts (get a free key at https://aistudio.google.com/app/apikey).',
+        });
+      }
 
       if (!transcript || transcript.trim().length < 20) {
         return res.status(400).json({ error: 'Please provide a valid transcript or video content.' });

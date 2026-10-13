@@ -2,7 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, type Plugin } from 'vite';
-import { createApiApp } from './server/app';
+import { createApiApp } from './server/app.ts';
 
 function expressPlugin(): Plugin {
   return {
@@ -19,7 +19,7 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss(), expressPlugin()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(process.cwd(), '.'),
       },
     },
     server: {

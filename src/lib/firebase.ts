@@ -28,14 +28,37 @@ const resolvedFirebaseConfig = {
   apiKey: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_API_KEY) || firebaseConfig.apiKey || '',
 };
 
-const app = getApps().length === 0 ? initializeApp(resolvedFirebaseConfig) : getApp();
+// Check if Firebase configuration has a valid, non-empty API key
+const hasValidConfig = Boolean(
+  resolvedFirebaseConfig.apiKey &&
+  typeof resolvedFirebaseConfig.apiKey === 'string' &&
+  resolvedFirebaseConfig.apiKey.trim() !== '' &&
+  resolvedFirebaseConfig.projectId
+);
 
-// Use specific firestoreDatabaseId configured in config
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+let appInstance: any = null;
+let dbInstance: any = null;
+let authInstance: any = null;
 
-export const auth = getAuth(app);
+if (hasValidConfig) {
+  try {
+    appInstance = getApps().length === 0 ? initializeApp(resolvedFirebaseConfig) : getApp();
+    dbInstance = firebaseConfig.firestoreDatabaseId
+      ? getFirestore(appInstance, firebaseConfig.firestoreDatabaseId)
+      : getFirestore(appInstance);
+    authInstance = getAuth(appInstance);
+  } catch (initErr) {
+    console.warn('[Firebase] Initialization skipped (offline local mode active):', initErr);
+    appInstance = null;
+    dbInstance = null;
+    authInstance = null;
+  }
+} else {
+  console.info('[Firebase] Running in local offline storage mode (no API key configured).');
+}
+
+export const db = dbInstance;
+export const auth = authInstance;
 
 // Strict Firestore error handling specification per integration guidelines
 export enum OperationType {
@@ -65,16 +88,17 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const currentUser = auth?.currentUser;
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
+      userId: currentUser?.uid,
+      email: currentUser?.email,
+      emailVerified: currentUser?.emailVerified,
+      isAnonymous: currentUser?.isAnonymous,
+      tenantId: currentUser?.tenantId,
       providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
+        currentUser?.providerData?.map((provider: any) => ({
           providerId: provider.providerId,
           email: provider.email,
         })) || [],
@@ -88,21 +112,27 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Diagnostic connection test document
 async function testConnection() {
+  if (!dbInstance) return;
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    await getDocFromServer(doc(dbInstance, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firebase client is offline. Please check network connectivity.');
     }
   }
 }
-testConnection();
+if (hasValidConfig && dbInstance) {
+  testConnection();
+}
 
 // Google Sign-In (ProvisionFirebase enables Google Login by default)
 export async function signInWithGoogle(): Promise<User> {
+  if (!authInstance) {
+    throw new Error('Google Sign-in is not configured. Your projects are safely saved locally on this browser.');
+  }
   const provider = new GoogleAuthProvider();
   try {
-    const cred = await signInWithPopup(auth, provider);
+    const cred = await signInWithPopup(authInstance, provider);
     return cred.user;
   } catch (error) {
     console.error('Google Sign-in error:', error);
@@ -112,8 +142,9 @@ export async function signInWithGoogle(): Promise<User> {
 
 // Sign-Out
 export async function signOutUser(): Promise<void> {
+  if (!authInstance) return;
   try {
-    await signOut(auth);
+    await signOut(authInstance);
   } catch (error) {
     console.error('Sign-out error:', error);
     throw error;
@@ -122,26 +153,56 @@ export async function signOutUser(): Promise<void> {
 
 // Listen for auth state changes
 export function onAuthUserChanged(callback: (user: User | null) => void): () => void {
-  return onAuthStateChanged(auth, callback);
+  if (!authInstance) {
+    callback(null);
+    return () => {};
+  }
+  return onAuthStateChanged(authInstance, callback);
 }
 
-// Persist a project to Firestore
-export async function saveProjectToFirestore(project: SavedProject): Promise<void> {
-  let user = auth.currentUser;
-  if (!user) {
-    // Prompt Google Sign-In if unauthenticated so data is saved under their account
-    user = await signInWithGoogle();
+const LOCAL_PROJECTS_KEY = 'viralcut_offline_projects';
+
+function getLocalProjects(): SavedProject[] {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_PROJECTS_KEY) : null;
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
   }
+}
 
+function setLocalProjects(projects: SavedProject[]) {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(LOCAL_PROJECTS_KEY, JSON.stringify(projects));
+    }
+  } catch {}
+}
+
+// Persist a project to Firestore or local storage
+export async function saveProjectToFirestore(project: SavedProject): Promise<void> {
   const sanitizedId = (project.id || `proj_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
-  const path = `projects/${sanitizedId}`;
-  const projectRef = doc(db, 'projects', sanitizedId);
-
   const payload: SavedProject = {
     ...project,
     id: sanitizedId,
-    userId: user.uid,
+    userId: auth?.currentUser?.uid || 'local-user',
   };
+
+  if (!db || !auth) {
+    const current = getLocalProjects();
+    const filtered = current.filter((p) => p.id !== sanitizedId);
+    setLocalProjects([payload, ...filtered]);
+    return;
+  }
+
+  let user = auth.currentUser;
+  if (!user) {
+    user = await signInWithGoogle();
+  }
+
+  const path = `projects/${sanitizedId}`;
+  const projectRef = doc(db, 'projects', sanitizedId);
+  payload.userId = user.uid;
 
   try {
     await setDoc(projectRef, payload, { merge: true });
@@ -150,11 +211,15 @@ export async function saveProjectToFirestore(project: SavedProject): Promise<voi
   }
 }
 
-// Load all projects owned by the currently authenticated user
+// Load all projects owned by the user or local storage
 export async function loadProjectsFromFirestore(): Promise<SavedProject[]> {
+  if (!db || !auth) {
+    return getLocalProjects();
+  }
+
   const user = auth.currentUser;
   if (!user) {
-    return [];
+    return getLocalProjects();
   }
 
   const path = 'projects';
@@ -171,14 +236,21 @@ export async function loadProjectsFromFirestore(): Promise<SavedProject[]> {
   }
 }
 
-// Delete a project from Firestore
+// Delete a project from Firestore or local storage
 export async function deleteProjectFromFirestore(id: string): Promise<void> {
+  const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  if (!db || !auth) {
+    const current = getLocalProjects();
+    setLocalProjects(current.filter((p) => p.id !== sanitizedId));
+    return;
+  }
+
   const user = auth.currentUser;
   if (!user) {
     throw new Error('Must be signed in to delete a project');
   }
 
-  const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
   const path = `projects/${sanitizedId}`;
   try {
     await deleteDoc(doc(db, 'projects', sanitizedId));
@@ -189,17 +261,21 @@ export async function deleteProjectFromFirestore(id: string): Promise<void> {
 
 // Subscribe to real-time updates for projects
 export function subscribeToProjects(callback: (projects: SavedProject[]) => void): () => void {
+  if (!db || !auth) {
+    callback(getLocalProjects());
+    return () => {};
+  }
+
   let unsubscribeSnapshot: (() => void) | null = null;
 
   const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-    // Clean up any existing snapshot listener
     if (unsubscribeSnapshot) {
       unsubscribeSnapshot();
       unsubscribeSnapshot = null;
     }
 
     if (!user) {
-      callback([]);
+      callback(getLocalProjects());
       return;
     }
 

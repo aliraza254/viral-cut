@@ -61,14 +61,64 @@ function AppContent() {
   );
 }
 
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('ViralCut UI Crash Caught by ErrorBoundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-zinc-900 border border-red-500/30 rounded-2xl p-6 shadow-2xl text-center space-y-4">
+            <div className="h-12 w-12 rounded-xl bg-red-500/10 text-red-400 mx-auto flex items-center justify-center font-bold text-xl">
+              ⚠️
+            </div>
+            <h2 className="text-lg font-bold text-white">Application Notice</h2>
+            <p className="text-xs text-zinc-400 font-mono bg-zinc-950 p-3 rounded-lg text-left overflow-auto max-h-32">
+              {this.state.error?.message || 'An unexpected error occurred during rendering.'}
+            </p>
+            <button
+              onClick={() => {
+                localStorage.removeItem('viralcut_draft_project');
+                window.location.reload();
+              }}
+              className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 font-bold text-zinc-950 text-xs transition-colors cursor-pointer"
+            >
+              Reset Cache & Reload App
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 /**
  * Root Application Router Shell
  * Provides global ProjectContext store for seamless cross-tool state preservation.
  */
 export default function App() {
   return (
-    <ProjectProvider>
-      <AppContent />
-    </ProjectProvider>
+    <ErrorBoundary>
+      <ProjectProvider>
+        <AppContent />
+      </ProjectProvider>
+    </ErrorBoundary>
   );
 }

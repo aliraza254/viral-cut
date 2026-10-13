@@ -8,10 +8,22 @@ class SpeechPreviewer {
   private isSpeaking = false;
   private onEndCallback: (() => void) | null = null;
   private onBoundaryCallback: ((charIndex: number) => void) | null = null;
+  private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+  private voices: SpeechSynthesisVoice[] = [];
 
   constructor() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       this.synth = window.speechSynthesis;
+      this.voices = this.synth.getVoices();
+      if (typeof this.synth.addEventListener === 'function') {
+        this.synth.addEventListener('voiceschanged', () => {
+          if (this.synth) this.voices = this.synth.getVoices();
+        });
+      } else if ('onvoiceschanged' in this.synth) {
+        this.synth.onvoiceschanged = () => {
+          if (this.synth) this.voices = this.synth.getVoices();
+        };
+      }
     }
   }
 
@@ -41,11 +53,10 @@ class SpeechPreviewer {
     utterance.pitch = 1.0;
 
     // Pick best voice
-    const voices = this.synth.getVoices();
+    const voices = this.voices.length > 0 ? this.voices : this.synth.getVoices();
     let selectedVoice = null;
 
     if (language === 'roman-urdu') {
-      // Prefer South Asian English / Urdu accented voices for natural Roman Urdu cadences
       selectedVoice =
         voices.find((v) => v.lang === 'en-IN' || v.lang.startsWith('ur') || v.lang.startsWith('hi')) ||
         voices.find((v) => v.lang.startsWith('en'));
@@ -62,7 +73,15 @@ class SpeechPreviewer {
       utterance.voice = selectedVoice;
     }
 
-    utterance.onend = () => {
+    const clearWatchdog = () => {
+      if (this.watchdogTimer) {
+        clearTimeout(this.watchdogTimer);
+        this.watchdogTimer = null;
+      }
+    };
+
+    const finish = () => {
+      clearWatchdog();
       this.isSpeaking = false;
       this.currentUtterance = null;
       if (this.onEndCallback) {
@@ -72,11 +91,11 @@ class SpeechPreviewer {
       }
     };
 
-    utterance.onerror = () => {
-      this.isSpeaking = false;
-      this.currentUtterance = null;
-      this.onEndCallback = null;
-      this.onBoundaryCallback = null;
+    utterance.onend = finish;
+
+    utterance.onerror = (e) => {
+      console.warn('[SpeechPreviewer] Utterance error, completing gracefully:', e);
+      finish();
     };
 
     utterance.onboundary = (event) => {
@@ -85,14 +104,27 @@ class SpeechPreviewer {
       }
     };
 
+    // Calculate maximum expected duration + safety padding for Chrome hang protection
+    const wordCount = Math.max(1, cleanText.split(/\s+/).length);
+    const expectedDurationMs = Math.max(2000, ((wordCount / 2.2) * 1000) / rate + 1500);
+    this.watchdogTimer = setTimeout(() => {
+      if (this.isSpeaking) {
+        console.warn('[SpeechPreviewer] Chrome audio watchdog triggered, advancing to prevent freeze');
+        finish();
+      }
+    }, expectedDurationMs);
+
     this.currentUtterance = utterance;
     this.isSpeaking = true;
+
     try {
+      if (this.synth.paused) {
+        this.synth.resume();
+      }
       this.synth.speak(utterance);
       return true;
     } catch {
-      this.isSpeaking = false;
-      this.currentUtterance = null;
+      finish();
       return false;
     }
   }
@@ -114,6 +146,10 @@ class SpeechPreviewer {
   }
 
   public stop() {
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
     this.isSpeaking = false;
     this.currentUtterance = null;
     this.onEndCallback = null;

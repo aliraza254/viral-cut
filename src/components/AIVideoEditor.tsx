@@ -445,7 +445,114 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
     }, 1200);
   };
 
-  // Video Export & Render with Captions onto Canvas
+  // Draw pixel-perfect styled captions directly on canvas matching the preview 1:1
+  const drawStyledCaptionOnCanvas = (
+    ctx: CanvasRenderingContext2D,
+    words: string[],
+    activeWordIdx: number,
+    preset: CaptionStylePreset,
+    baseFontSize: number,
+    posYPercent: number,
+    canvasW: number,
+    canvasH: number
+  ) => {
+    if (words.length === 0) return;
+
+    // Scale font size relative to 1080p canvas width
+    const scale = canvasW / 360;
+    const computedFontSize = Math.max(34, Math.round(baseFontSize * scale));
+    const yCenter = (canvasH * posYPercent) / 100;
+
+    // Split words into punchy lines (3-4 words per line)
+    const maxWords = preset === 'beast' ? 3 : 4;
+    const lines: { text: string; wordIndices: number[] }[] = [];
+    for (let i = 0; i < words.length; i += maxWords) {
+      const chunk = words.slice(i, i + maxWords);
+      lines.push({
+        text: chunk.join(' '),
+        wordIndices: chunk.map((_, idx) => i + idx),
+      });
+    }
+
+    const lineHeight = computedFontSize * 1.25;
+    const totalHeight = lines.length * lineHeight;
+    let currentY = yCenter - totalHeight / 2 + lineHeight / 2;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    lines.forEach((line) => {
+      const isLineActive = line.wordIndices.includes(activeWordIdx);
+
+      if (preset === 'hormozi') {
+        ctx.font = `900 ${computedFontSize}px "Montserrat", "Arial Black", sans-serif`;
+        const textToDraw = line.text.toUpperCase();
+
+        ctx.lineWidth = Math.round(14 * (scale / 3));
+        ctx.strokeStyle = '#000000';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+        ctx.shadowBlur = 16;
+        ctx.strokeText(textToDraw, canvasW / 2, currentY);
+
+        ctx.fillStyle = isLineActive ? '#34D399' : '#FBBF24';
+        ctx.fillText(textToDraw, canvasW / 2, currentY);
+      } else if (preset === 'beast') {
+        ctx.font = `900 ${Math.round(computedFontSize * 1.15)}px "Impact", "Arial Black", sans-serif`;
+        const textToDraw = line.text.toUpperCase();
+
+        ctx.lineWidth = Math.round(16 * (scale / 3));
+        ctx.strokeStyle = '#000000';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+        ctx.shadowBlur = 20;
+        ctx.strokeText(textToDraw, canvasW / 2, currentY);
+
+        ctx.fillStyle = isLineActive ? '#FBBF24' : '#FFFFFF';
+        ctx.fillText(textToDraw, canvasW / 2, currentY);
+      } else if (preset === 'neon') {
+        ctx.font = `800 ${computedFontSize}px "Arial Black", sans-serif`;
+        const textToDraw = line.text;
+
+        ctx.lineWidth = Math.round(12 * (scale / 3));
+        ctx.strokeStyle = '#06B6D4';
+        ctx.shadowColor = '#06B6D4';
+        ctx.shadowBlur = 24;
+        ctx.strokeText(textToDraw, canvasW / 2, currentY);
+
+        ctx.fillStyle = '#F472B6';
+        ctx.fillText(textToDraw, canvasW / 2, currentY);
+      } else {
+        // Clean / Minimalist
+        ctx.font = `700 ${Math.round(computedFontSize * 0.95)}px "Inter", -apple-system, sans-serif`;
+        const textToDraw = line.text;
+
+        const metrics = ctx.measureText(textToDraw);
+        const pillW = metrics.width + 36 * scale;
+        const pillH = lineHeight;
+        ctx.fillStyle = 'rgba(9, 9, 11, 0.75)';
+        ctx.beginPath();
+        if (typeof (ctx as any).roundRect === 'function') {
+          (ctx as any).roundRect((canvasW - pillW) / 2, currentY - pillH / 2, pillW, pillH, 16);
+          ctx.fill();
+        } else {
+          ctx.fillRect((canvasW - pillW) / 2, currentY - pillH / 2, pillW, pillH);
+        }
+
+        ctx.lineWidth = Math.round(6 * (scale / 3));
+        ctx.strokeStyle = '#000000';
+        ctx.strokeText(textToDraw, canvasW / 2, currentY);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(textToDraw, canvasW / 2, currentY);
+      }
+
+      currentY += lineHeight;
+    });
+
+    ctx.restore();
+  };
+
+  // Video Export & Render with Captions onto Canvas (Smooth Real-Time + Audio Sync)
   const handleExportVideoWithCaptions = async () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
@@ -464,29 +571,72 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
     }
 
     try {
-      const stream = canvas.captureStream(30);
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-          ? 'video/webm;codecs=vp9'
-          : 'video/webm',
-        videoBitsPerSecond: 6000000,
+      const canvasStream = canvas.captureStream(30);
+
+      // Capture audio from the video element
+      let combinedStream = canvasStream;
+      let audioCtx: AudioContext | null = null;
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+          const sourceNode = audioCtx.createMediaElementSource(video);
+          const destNode = audioCtx.createMediaStreamDestination();
+          sourceNode.connect(destNode);
+          sourceNode.connect(audioCtx.destination);
+
+          const audioTracks = destNode.stream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            combinedStream = new MediaStream([
+              ...canvasStream.getVideoTracks(),
+              ...audioTracks,
+            ]);
+          }
+        }
+      } catch (audioErr) {
+        console.warn('Audio capture warning, continuing with video stream:', audioErr);
+      }
+
+      let mimeType = 'video/webm';
+      if (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1,mp4a.40.2')) {
+        mimeType = 'video/mp4;codecs=avc1,mp4a.40.2';
+      } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+        mimeType = 'video/mp4';
+      } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
+        mimeType = 'video/webm;codecs=vp9,opus';
+      }
+
+      const mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType,
+        videoBitsPerSecond: 8000000,
       });
 
       const chunks: Blob[] = [];
-      mediaRecorder.ondataavailable = e => {
+      mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
 
+      const fileExtension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+      const cleanTitle = (uploadedFileName || reel.title || 'video')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9]/g, '_')
+        .toLowerCase();
+
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
+        if (audioCtx) {
+          try {
+            audioCtx.close();
+          } catch {}
+        }
+        const blob = new Blob(chunks, { type: mimeType });
+        const downloadUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `ViralCut_AI_Edited_${reel.title.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}.webm`;
+        a.href = downloadUrl;
+        a.download = `ViralCut_Captioned_${cleanTitle}.${fileExtension}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(downloadUrl);
         setIsExportingVideo(false);
         setExportProgress(100);
       };
@@ -497,95 +647,91 @@ export const AIVideoEditor: React.FC<AIVideoEditorProps> = ({
       video.pause();
       setIsPlaying(false);
       video.currentTime = 0;
+      await new Promise((r) => setTimeout(r, 150));
 
-      const totalSec = Math.min(duration, totalCalculatedDuration);
-      const fps = 30;
-      const totalFrames = Math.ceil(totalSec * fps);
-      let frame = 0;
+      const totalSec = Math.min(duration || 30, totalCalculatedDuration || 30);
+      let isExportFinished = false;
 
-      const renderNextFrame = () => {
-        if (frame >= totalFrames) {
-          mediaRecorder.stop();
-          return;
+      // Play video smoothly at 1x real-time so captureStream records perfectly without stutter
+      try {
+        await video.play();
+      } catch (playErr) {
+        console.warn('Playback start during export:', playErr);
+      }
+
+      const drawLoop = () => {
+        if (isExportFinished) return;
+        const t = video.currentTime;
+
+        // Draw background
+        ctx.fillStyle = '#09090b';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Active segment for punch-in zoom
+        const segIdx = normalizedSegments.findIndex((s) => t >= s.startSec && t < s.endSec);
+        const seg = normalizedSegments[segIdx] || normalizedSegments[0];
+        const isZoom = enablePunchInZooms && seg?.isPunchIn;
+        const zoomScale = isZoom ? 1.15 : 1.0;
+
+        ctx.save();
+        if (isZoom) {
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.scale(zoomScale, zoomScale);
+          ctx.translate(-canvas.width / 2, -canvas.height / 2);
         }
 
-        const t = (frame / fps);
-        video.currentTime = t;
+        // Draw video centered 9:16
+        const vRatio = (video.videoWidth || 1080) / (video.videoHeight || 1920);
+        const cRatio = canvas.width / canvas.height;
+        let drawW = canvas.width;
+        let drawH = canvas.height;
+        let drawX = 0;
+        let drawY = 0;
 
-        video.onseeked = () => {
-          // Draw video with optional zoom
-          ctx.fillStyle = '#09090b';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (vRatio > cRatio) {
+          drawW = canvas.height * vRatio;
+          drawX = (canvas.width - drawW) / 2;
+        } else {
+          drawH = canvas.width / vRatio;
+          drawY = (canvas.height - drawH) / 2;
+        }
 
-          // Find current segment for zoom
-          const segIdx = normalizedSegments.findIndex(s => t >= s.startSec && t < s.endSec);
-          const seg = normalizedSegments[segIdx] || normalizedSegments[0];
-          const isZoom = enablePunchInZooms && seg?.isPunchIn;
-          const zoomScale = isZoom ? 1.15 : 1.0;
+        ctx.drawImage(video, drawX, drawY, drawW, drawH);
+        ctx.restore();
 
-          ctx.save();
-          if (isZoom) {
-            ctx.translate(canvas.width / 2, canvas.height / 2);
-            ctx.scale(zoomScale, zoomScale);
-            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+        // Draw dynamic styled captions
+        if (enableCaptions && seg) {
+          const words = (seg.spokenScript || seg.onScreenText || '').trim().split(/\s+/);
+          const segDuration = Math.max(0.5, seg.endSec - seg.startSec);
+          const segElapsed = Math.max(0, t - seg.startSec);
+          const activeWordIdx = Math.min(words.length - 1, Math.floor((segElapsed / segDuration) * words.length));
+
+          drawStyledCaptionOnCanvas(
+            ctx,
+            words,
+            activeWordIdx,
+            captionStyle,
+            captionFontSize,
+            captionPositionY,
+            canvas.width,
+            canvas.height
+          );
+        }
+
+        setExportProgress(Math.min(99, Math.round((t / totalSec) * 100)));
+
+        if (t >= totalSec || video.ended) {
+          isExportFinished = true;
+          video.pause();
+          if (mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
           }
-
-          // Draw video covering 9:16
-          const vRatio = video.videoWidth / video.videoHeight;
-          const cRatio = canvas.width / canvas.height;
-          let drawW = canvas.width;
-          let drawH = canvas.height;
-          let drawX = 0;
-          let drawY = 0;
-
-          if (vRatio > cRatio) {
-            drawW = canvas.height * vRatio;
-            drawX = (canvas.width - drawW) / 2;
-          } else {
-            drawH = canvas.width / vRatio;
-            drawY = (canvas.height - drawH) / 2;
-          }
-
-          ctx.drawImage(video, drawX, drawY, drawW, drawH);
-          ctx.restore();
-
-          // Draw dynamic caption overlay
-          if (enableCaptions && seg) {
-            const words = (seg.spokenScript || seg.onScreenText || '').trim().split(/\s+/);
-            const segDuration = Math.max(0.5, seg.endSec - seg.startSec);
-            const segElapsed = Math.max(0, t - seg.startSec);
-            const activeWordIdx = Math.min(words.length - 1, Math.floor((segElapsed / segDuration) * words.length));
-
-            ctx.save();
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = 'bold 58px "Montserrat", system-ui, sans-serif';
-
-            const capY = (canvas.height * captionPositionY) / 100;
-            const text = words.join(' ');
-
-            // Shadow / stroke
-            ctx.shadowColor = 'rgba(0,0,0,0.9)';
-            ctx.shadowBlur = 12;
-            ctx.lineWidth = 14;
-            ctx.strokeStyle = '#000000';
-            ctx.strokeText(text, canvas.width / 2, capY);
-
-            // Fill
-            ctx.fillStyle = captionStyle === 'hormozi' ? '#FBBF24' : '#FFFFFF';
-            ctx.fillText(text, canvas.width / 2, capY);
-
-            // Active word highlight box
-            ctx.restore();
-          }
-
-          frame++;
-          setExportProgress(Math.round((frame / totalFrames) * 100));
-          renderNextFrame();
-        };
+        } else {
+          requestAnimationFrame(drawLoop);
+        }
       };
 
-      renderNextFrame();
+      requestAnimationFrame(drawLoop);
     } catch (err) {
       console.error('Export recording failed:', err);
       setIsExportingVideo(false);
